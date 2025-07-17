@@ -1,5 +1,5 @@
 /*
- * fetch-arweave-chunks.cjs
+ * fetch-arweave-chunks.mjs
  * ---------------------------------------------
  * Reconstruct the raw data payload for an Arweave transaction by
  * walking the network's chunk storage starting from the transaction's
@@ -7,10 +7,10 @@
  * the declared transaction size is satisfied.
  *
  * Usage:
- *   node fetch-arweave-chunks.cjs <txid> [outfile] [--peers peer1,peer2,...] [--maxPeers N] [--timeout MS] [--verbose]
+ *   node fetch-arweave-chunks.mjs <txid> [outfile] [--peers peer1,peer2,...] [--maxPeers N] [--timeout MS] [--verbose]
  *
  * Example:
- *   node fetch-arweave-chunks.cjs SIaSQkaJSucywz5Jv5dHQky78Hhur-OEMHn7Jld2ABo bundle.bin --verbose
+ *   node fetch-arweave-chunks.mjs SIaSQkaJSucywz5Jv5dHQky78Hhur-OEMHn7Jld2ABo bundle.bin --verbose
  *
  * The script will:
  *   1. Query a gateway (/tx/<id>/offset) to obtain { offset, size }.
@@ -40,11 +40,10 @@
  */
 
 /* eslint-disable no-console */
-const fs = require('fs');
-const path = require('path');
-const http = require('http');
-const https = require('https');
-const { URL } = require('url');
+import fs from 'fs';
+import path from 'path';
+import axios from 'axios';
+import { URL } from 'url';
 
 // ------------------------------ CLI ARGS ------------------------------------
 function parseArgs(argv) {
@@ -93,85 +92,6 @@ function usage() {
   );
 }
 
-// ------------------------------ HTTP UTIL -----------------------------------
-function getJSON(urlStr, timeout) {
-  return new Promise((resolve, reject) => {
-    const urlObj = new URL(urlStr);
-    const lib = urlObj.protocol === 'https:' ? https : http;
-    const req = lib.request(
-      {
-        hostname: urlObj.hostname,
-        port: urlObj.port || (urlObj.protocol === 'https:' ? 443 : 80),
-        path: urlObj.pathname + urlObj.search,
-        method: 'GET',
-        timeout,
-        headers: { Accept: 'application/json' },
-      },
-      (res) => {
-        const { statusCode } = res;
-        const chunks = [];
-        res.on('data', (d) => chunks.push(d));
-        res.on('end', () => {
-          const buf = Buffer.concat(chunks);
-          if (statusCode && statusCode >= 200 && statusCode < 300) {
-            try {
-              const json = JSON.parse(buf.toString('utf8'));
-              resolve(json);
-            } catch (err) {
-              reject(new Error(`Invalid JSON from ${urlStr}: ${err.message}`));
-            }
-          } else {
-            reject(
-              new Error(
-                `HTTP ${statusCode} from ${urlStr}: ${buf.toString('utf8')}`,
-              ),
-            );
-          }
-        });
-      },
-    );
-    req.on('error', reject);
-    req.on('timeout', () => {
-      req.destroy(new Error('Request timeout'));
-    });
-    req.end();
-  });
-}
-
-function getText(urlStr, timeout) {
-  return new Promise((resolve, reject) => {
-    const urlObj = new URL(urlStr);
-    const lib = urlObj.protocol === 'https:' ? https : http;
-    const req = lib.request(
-      {
-        hostname: urlObj.hostname,
-        port: urlObj.port || (urlObj.protocol === 'https:' ? 443 : 80),
-        path: urlObj.pathname + urlObj.search,
-        method: 'GET',
-        timeout,
-        headers: { Accept: 'text/plain, application/json' },
-      },
-      (res) => {
-        const { statusCode } = res;
-        const chunks = [];
-        res.on('data', (d) => chunks.push(d));
-        res.on('end', () => {
-          const buf = Buffer.concat(chunks);
-          if (statusCode && statusCode >= 200 && statusCode < 300) {
-            resolve(buf.toString('utf8'));
-          } else {
-            reject(new Error(`HTTP ${statusCode} from ${urlStr}`));
-          }
-        });
-      },
-    );
-    req.on('error', reject);
-    req.on('timeout', () => {
-      req.destroy(new Error('Request timeout'));
-    });
-    req.end();
-  });
-}
 
 // ------------------------------ BASE64URL -----------------------------------
 function base64UrlToBuffer(b64url) {
@@ -217,8 +137,7 @@ async function discoverPeers(seedPeers, timeout, maxPeers, verbose) {
     out.push(norm);
     if (verbose) console.error(`[peers] visiting ${norm}`);
     try {
-      const txt = await getText(`${norm}/peers`, timeout);
-      const arr = JSON.parse(txt);
+      const arr = await axios.get(`${norm}/peers`, { timeout }).then(r => r.data);
       for (const cand of arr) {
         const c = normalisePeer(cand);
         if (
@@ -245,7 +164,7 @@ async function fetchTxOffset(txid, peers, timeout, verbose) {
     const url = `${p}/tx/${txid}/offset`;
     if (verbose) console.error(`[offset] ${url}`);
     try {
-      const json = await getJSON(url, timeout);
+      const json = await axios.get(url, { timeout }).then(r => r.data);
       if (
         json &&
         typeof json.offset !== 'undefined' &&
@@ -273,7 +192,7 @@ async function fetchTxOffset(txid, peers, timeout, verbose) {
 async function fetchChunkFromPeer(peer, absPos, timeout, verbose) {
   const url = `${peer}/chunk/${absPos.toString()}`;
   if (verbose) console.error(`[chunk] GET ${url}`);
-  const json = await getJSON(url, timeout);
+  const json = await axios.get(url, { timeout }).then(r => r.data);
   if (!json || typeof json.chunk !== 'string') throw new Error('chunk missing');
   const buf = base64UrlToBuffer(json.chunk);
   // Response may include an `offset` (end offset) and/or `data_size`; tolerate absence.
@@ -302,7 +221,7 @@ async function fetchChunk(peers, absPos, timeout, verbose) {
 }
 
 // ------------------------------ MAIN LOGIC ----------------------------------
-async function reconstruct(opts) {
+export async function fetchArweaveChunks(opts) {
   const seed = [...BUILTIN_PEERS, ...opts.peers];
   // const peers = await discoverPeers(
   //   seed,
@@ -403,30 +322,32 @@ async function reconstruct(opts) {
 }
 
 // ------------------------------ ENTRYPOINT ----------------------------------
-(async () => {
-  let opts;
-  try {
-    opts = parseArgs(process.argv);
-  } catch (err) {
-    console.error(err.message);
-    usage();
-    process.exit(1);
-  }
-  if (opts.help) {
-    usage();
-    process.exit(0);
-  }
-  try {
-    const res = await reconstruct(opts);
-    console.log(`Wrote ${res.bytes} bytes to ${res.outfile}`);
-    process.exit(0);
-  } catch (err) {
-    console.error('ERROR:', err.message);
-    if (err.causes) {
-      for (const c of err.causes) {
-        console.error('  cause:', c.message);
-      }
+if (import.meta.url === `file://${process.argv[1]}`) {
+  (async () => {
+    let opts;
+    try {
+      opts = parseArgs(process.argv);
+    } catch (err) {
+      console.error(err.message);
+      usage();
+      process.exit(1);
     }
-    process.exit(3);
-  }
-})();
+    if (opts.help) {
+      usage();
+      process.exit(0);
+    }
+    try {
+      const res = await fetchArweaveChunks(opts);
+      console.log(`Wrote ${res.bytes} bytes to ${res.outfile}`);
+      process.exit(0);
+    } catch (err) {
+      console.error('ERROR:', err.message);
+      if (err.causes) {
+        for (const c of err.causes) {
+          console.error('  cause:', c.message);
+        }
+      }
+      process.exit(3);
+    }
+  })();
+}
