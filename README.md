@@ -2,7 +2,7 @@ Given a tx id that is failing on arweave: ZAiy2oDJP1PcjDftWzdtmSAD91vZoz0WJZ4Fdq
 
 Recommended: Use the all-in-one script:
 
-    node src/arweave-fix-all.mjs ZAiy2oDJP1PcjDftWzdtmSAD91vZoz0WJZ4FdqMS6WU
+    node src/fix.mjs ZAiy2oDJP1PcjDftWzdtmSAD91vZoz0WJZ4FdqMS6WU
 
 This will:
   1. Check if the tx is already on Arweave (bundled)

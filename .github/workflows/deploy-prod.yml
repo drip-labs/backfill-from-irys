@@ -1,0 +1,40 @@
+name: Deploy to Cloud Functions Gen2
+
+on:
+  push:
+    branches:
+      - release-prod
+
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - run: npm ci
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCLOUD_SERVICE_KEY }}
+
+      - name: Set up gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy to Cloud Functions Gen2
+        run: |
+          gcloud functions deploy backfill-from-irys \
+            --gen2 \
+            --region=us-west1 \
+            --runtime=nodejs20 \
+            --entry-point=app \
+            --source=. \
+            --trigger-http \
+            --allow-unauthenticated \
+            --memory=512MB \
+            --timeout=540s

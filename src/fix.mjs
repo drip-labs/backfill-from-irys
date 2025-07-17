@@ -29,7 +29,7 @@ function pollArweave(txid, { interval = 10000, maxAttempts = 60 } = {}) {
   });
 }
 
-async function main(txid) {
+export async function fixArweaveTx(txid) {
   // 1. Check if tx is already on Arweave or Irys
   let bundleId;
   let seeds;
@@ -38,11 +38,11 @@ async function main(txid) {
     const res = await checkTx(txid);
     if (res.source === 'arweave') {
       console.log(`Found on Arweave. No action needed.`);
-      return;
+      return { status: 'already_on_arweave' };
     }
     if (res.source !== 'irys') {
       console.log(`Not found. No bundle available on Irys. Exiting.`);
-      return;
+      return { status: 'not_found_on_irys' };
     }
     console.log(`Not found. Checking Irys for bundle...`);
     bundleId = res.bundle_id;
@@ -80,6 +80,7 @@ async function main(txid) {
   try {
     console.log(`\nPolling Arweave for tx ${txid}...`);
     await pollArweave(txid);
+    return { status: 'fixed' };
   } catch (err) {
     console.error('\nPolling failed:', err.message);
     throw err;
@@ -92,5 +93,5 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     console.log(`Usage: node ${path.basename(process.argv[1])} <txid>`);
     process.exit(1);
   }
-  main(args[0]).catch(() => process.exit(1));
+  fixArweaveTx(args[0]).catch(() => process.exit(1));
 } 
