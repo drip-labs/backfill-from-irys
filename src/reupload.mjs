@@ -6,7 +6,7 @@ import * as ArweaveUtils from 'arweave/node/lib/utils.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export async function reuploadChunks(TX_ID_TO_UPLOAD) {
+export async function reuploadChunks(TX_ID_TO_UPLOAD, { logger = console.log, errorLogger = console.error } = {}) {
   const DATA_TO_UPLOAD = path.resolve(`./${TX_ID_TO_UPLOAD}.bin`);
   if (!fs.existsSync(DATA_TO_UPLOAD)) {
     throw new Error(`File not found: ${DATA_TO_UPLOAD}`);
@@ -26,7 +26,7 @@ export async function reuploadChunks(TX_ID_TO_UPLOAD) {
   const tx = uploader.transaction;
   const totalChunks = tx.chunks.chunks.length;
 
-  console.log(
+  logger(
     `Uploading ${totalChunks} chunk(s) for transaction ${TX_ID_TO_UPLOAD}...`,
   );
 
@@ -58,13 +58,13 @@ export async function reuploadChunks(TX_ID_TO_UPLOAD) {
         // POST the chunk
         const resp = await arweave.api.post('chunk', chunkObj).catch((e) => {
           // Normalize network errors to a response-like object
-          console.error(`Network error posting chunk ${i}: ${e.message}`);
+          errorLogger(`Network error posting chunk ${i}: ${e.message}`);
           return { status: -1, data: { error: e.message } };
         });
 
         if (resp.status === 200 || resp.status === 208) {
           // 208 Already Reported: chunk already present – treat as success
-          console.log(
+          logger(
             `Chunk ${i + 1}/${totalChunks} uploaded. (status ${resp.status})`,
           );
           chunkSuccess = true;
@@ -78,15 +78,15 @@ export async function reuploadChunks(TX_ID_TO_UPLOAD) {
       } catch (err) {
         attempt += 1;
         if (attempt > MAX_RETRIES_PER_CHUNK) {
-          console.error(
+          errorLogger(
             `❌ Giving up on chunk ${i} after ${MAX_RETRIES_PER_CHUNK} retries.`,
           );
-          console.error(err);
+          errorLogger(err);
           failedChunks.push(i + 1);
           break;
         } else {
           const delay = RETRY_DELAY_MS_BASE * attempt;
-          console.warn(
+          logger(
             `Retry ${attempt}/${MAX_RETRIES_PER_CHUNK} for chunk ${i} in ${delay}ms... (${err.message})`,
           );
           await sleep(delay);
@@ -96,9 +96,9 @@ export async function reuploadChunks(TX_ID_TO_UPLOAD) {
   }
 
   if (successCount === totalChunks) {
-    console.log(`✅ All ${totalChunks} chunks uploaded successfully for ${TX_ID_TO_UPLOAD}!`);
+    logger(`✅ All ${totalChunks} chunks uploaded successfully for ${TX_ID_TO_UPLOAD}!`);
   } else {
-    console.error(`❌ Only ${successCount}/${totalChunks} chunks uploaded for ${TX_ID_TO_UPLOAD}. Failed chunks: [${failedChunks.join(', ')}]`);
+    errorLogger(`❌ Only ${successCount}/${totalChunks} chunks uploaded for ${TX_ID_TO_UPLOAD}. Failed chunks: [${failedChunks.join(', ')}]`);
     throw new Error(`Failed to upload all chunks for ${TX_ID_TO_UPLOAD}`);
   }
 }
@@ -109,7 +109,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     console.error(`Usage: node ${path.basename(process.argv[1])} <txid>`);
     process.exit(1);
   }
-  reuploadChunks(args[0]).catch((err) => {
+  reuploadChunks(args[0], { logger: console.log, errorLogger: console.error }).catch((err) => {
     console.error('ERROR:', err.message);
     process.exit(1);
   });

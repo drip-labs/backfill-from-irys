@@ -2,9 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import { fixArweaveTx } from './fix.mjs';
 
-// Helper to require env vars
-
-
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
@@ -13,7 +10,7 @@ app.get('/', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-// /fix endpoint streams logs as text/plain to the client in real time
+// /fix endpoint streams logs as text/plain to the client in real time, concurrency-safe
 app.post('/fix', async (req, res) => {
   const { txid } = req.body;
   if (!txid) {
@@ -23,31 +20,25 @@ app.post('/fix', async (req, res) => {
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   res.setHeader('Transfer-Encoding', 'chunked');
 
-  // Patch console.log and console.error to stream to the response
-  const origLog = console.log;
-  const origError = console.error;
-  console.log = (...args) => {
+  // Per-request logger functions
+  const logger = (...args) => {
     const msg = args.join(' ') + '\n';
     res.write(msg);
-    origLog.apply(console, args);
+    process.stdout.write(msg);
   };
-  console.error = (...args) => {
+  const errorLogger = (...args) => {
     const msg = args.join(' ') + '\n';
     res.write(msg);
-    origError.apply(console, args);
+    process.stderr.write(msg);
   };
 
   try {
-    const result = await fixArweaveTx(txid);
+    const result = await fixArweaveTx(txid, { logger, errorLogger });
     res.write('\nDONE: ' + JSON.stringify(result) + '\n');
     res.end();
   } catch (e) {
     res.write('\nERROR: ' + e.message + '\n');
     res.end();
-  } finally {
-    // Restore original console methods
-    console.log = origLog;
-    console.error = origError;
   }
 });
 
