@@ -3,8 +3,21 @@ const fs = require('fs');
 const path = require('path');
 
 // --- CONFIG -------------------------------------------------------------
-const DATA_TO_UPLOAD = path.resolve('./bundle.bin');
-const TX_ID_TO_UPLOAD = 'SIaSQkaJSucywz5Jv5dHQky78Hhur-OEMHn7Jld2ABo';
+// Remove hardcoded values; will be set from argv
+
+// --- ARGV PARSING -------------------------------------------------------
+const args = process.argv.slice(2);
+if (args.length < 1 || args.includes('-h') || args.includes('--help')) {
+  console.error(`Usage: node ${path.basename(process.argv[1])} <txid>`);
+  process.exit(1);
+}
+const TX_ID_TO_UPLOAD = args[0];
+const DATA_TO_UPLOAD = path.resolve(`./${TX_ID_TO_UPLOAD}.bin`);
+
+if (!fs.existsSync(DATA_TO_UPLOAD)) {
+  console.error(`Error: File not found: ${DATA_TO_UPLOAD}`);
+  process.exit(1);
+}
 
 // Optional: tune retry behaviour
 const MAX_RETRIES_PER_CHUNK = 5;
