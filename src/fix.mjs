@@ -4,7 +4,7 @@ import { checkTx } from './check-irys-bundle.mjs';
 import { fetchArweaveChunks } from './fetch-arweave-chunks.mjs';
 import { reuploadChunks } from './reupload.mjs';
 
-function pollArweave(txid, { interval = 10000, maxAttempts = 60 } = {}) {
+function pollArweave(txid, { interval = 10000, maxAttempts = 100 } = {}) {
   return new Promise((resolve, reject) => {
     let attempts = 0;
     async function check() {
