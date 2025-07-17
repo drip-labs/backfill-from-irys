@@ -4,40 +4,8 @@ import path from 'path';
 import { validatePath } from 'arweave/node/lib/merkle.js';
 import * as ArweaveUtils from 'arweave/node/lib/utils.js';
 
-// --- CONFIG -------------------------------------------------------------
-// Remove hardcoded values; will be set from argv
-
-// --- ARGV PARSING -------------------------------------------------------
-const args = process.argv.slice(2);
-if (args.length < 1 || args.includes('-h') || args.includes('--help')) {
-  console.error(`Usage: node ${path.basename(process.argv[1])} <txid>`);
-  process.exit(1);
-}
-const TX_ID_TO_UPLOAD = args[0];
-const DATA_TO_UPLOAD = path.resolve(`./${TX_ID_TO_UPLOAD}.bin`);
-
-if (!fs.existsSync(DATA_TO_UPLOAD)) {
-  console.error(`Error: File not found: ${DATA_TO_UPLOAD}`);
-  process.exit(1);
-}
-
-// Optional: tune retry behaviour
-const MAX_RETRIES_PER_CHUNK = 5;
-const RETRY_DELAY_MS_BASE = 750; // backoff base
-
-// --- INIT ARWEAVE CLIENT ------------------------------------------------
-const arweave = Arweave.init({
-  host: 'arweave.net',
-  port: 443,
-  protocol: 'https',
-});
-
-// --- UTILS --------------------------------------------------------------
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// Node build location for helpers varies; try/catch fallbacks:
-
-// --- MAIN ---------------------------------------------------------------
 export async function reuploadChunks(TX_ID_TO_UPLOAD) {
   const DATA_TO_UPLOAD = path.resolve(`./${TX_ID_TO_UPLOAD}.bin`);
   if (!fs.existsSync(DATA_TO_UPLOAD)) {
@@ -62,9 +30,13 @@ export async function reuploadChunks(TX_ID_TO_UPLOAD) {
     `Uploading ${totalChunks} chunk(s) for transaction ${TX_ID_TO_UPLOAD}...`,
   );
 
+  let successCount = 0;
+  let failedChunks = [];
+
   // 3. Walk each chunk index and POST directly (skip posting tx)
   for (let i = 0; i < totalChunks; i++) {
     let attempt = 0;
+    let chunkSuccess = false;
     while (true) {
       try {
         // Recreate the chunk structure exactly as arweave-js does:
@@ -95,6 +67,8 @@ export async function reuploadChunks(TX_ID_TO_UPLOAD) {
           console.log(
             `Chunk ${i + 1}/${totalChunks} uploaded. (status ${resp.status})`,
           );
+          chunkSuccess = true;
+          successCount++;
           break;
         } else {
           throw new Error(
@@ -108,7 +82,8 @@ export async function reuploadChunks(TX_ID_TO_UPLOAD) {
             `❌ Giving up on chunk ${i} after ${MAX_RETRIES_PER_CHUNK} retries.`,
           );
           console.error(err);
-          throw err;
+          failedChunks.push(i + 1);
+          break;
         } else {
           const delay = RETRY_DELAY_MS_BASE * attempt;
           console.warn(
@@ -120,12 +95,12 @@ export async function reuploadChunks(TX_ID_TO_UPLOAD) {
     }
   }
 
-  console.log(
-    '✅ All chunks attempted. Note: We did NOT (re)post the transaction body.',
-  );
-  console.log(
-    'If all chunks returned 200/208, the gateway should be able to assemble the full data.',
-  );
+  if (successCount === totalChunks) {
+    console.log(`✅ All ${totalChunks} chunks uploaded successfully for ${TX_ID_TO_UPLOAD}!`);
+  } else {
+    console.error(`❌ Only ${successCount}/${totalChunks} chunks uploaded for ${TX_ID_TO_UPLOAD}. Failed chunks: [${failedChunks.join(', ')}]`);
+    throw new Error(`Failed to upload all chunks for ${TX_ID_TO_UPLOAD}`);
+  }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

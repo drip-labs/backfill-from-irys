@@ -222,7 +222,8 @@ async function fetchChunk(peers, absPos, timeout, verbose) {
 
 // ------------------------------ MAIN LOGIC ----------------------------------
 export async function fetchArweaveChunks(opts) {
-  const seed = [...BUILTIN_PEERS, ...opts.peers];
+  opts.outfile = opts.outfile || `${opts.txid}.bin`;
+  const seed = [...BUILTIN_PEERS, ...(opts.peers || [])];
   // const peers = await discoverPeers(
   //   seed,
   //   opts.timeout,
@@ -263,13 +264,17 @@ export async function fetchArweaveChunks(opts) {
     '74.82.0.180:1986',
     '3.34.96.164:1984',
     '74.82.0.180:1988',
-  ].map((p) => `http://${p}`);
+  ];
 
-  if (opts.verbose) console.error(`[peers] discovered ${peers.length} peers`);
+  // Normalize and deduplicate all peers
+  const allPeers = Array.from(
+    new Set([...seed, ...peers].map(normalisePeer).filter(Boolean))
+  );
+  console.log(`Using peers for chunk fetch: [${allPeers.join(', ')}]`);
 
   const { offset: endOffset, size } = await fetchTxOffset(
     opts.txid,
-    peers,
+    allPeers,
     opts.timeout,
     opts.verbose,
   );
@@ -280,9 +285,11 @@ export async function fetchArweaveChunks(opts) {
   const buffers = [];
   let bytesAccum = 0n;
   let nextPos = startOffset;
+  let chunkCount = 0;
+  let estTotalChunks = Math.ceil(Number(size) / (256 * 1024)); // estimate
   while (bytesAccum < size) {
     const { buf, start, end } = await fetchChunk(
-      peers,
+      allPeers,
       nextPos,
       opts.timeout,
       opts.verbose,
@@ -301,11 +308,8 @@ export async function fetchArweaveChunks(opts) {
     }
     buffers.push(usable);
     bytesAccum += BigInt(usable.length);
-    if (opts.verbose) {
-      console.error(
-        `[accum] got ${usable.length} bytes (chunk ${buf.length}); total=${bytesAccum}/${size}`,
-      );
-    }
+    chunkCount++;
+    console.log(`Fetched chunk ${chunkCount} (size: ${usable.length} bytes, total: ${bytesAccum}/${size})`);
     if (bytesAccum >= size) break;
     // Compute next absolute position (byte index) to request.
     nextPos = start + BigInt(buf.length); // first byte after this chunk
@@ -313,11 +317,14 @@ export async function fetchArweaveChunks(opts) {
 
   const outBuf = Buffer.concat(buffers.map((b) => Buffer.from(b)));
   if (BigInt(outBuf.length) !== size) {
+    console.error(`❌ Failed to fetch all chunks for ${opts.txid}: expected ${size} bytes, got ${outBuf.length} bytes.`);
     throw new Error(
       `Incomplete: expected ${size} bytes but assembled ${outBuf.length}`,
     );
   }
   fs.writeFileSync(opts.outfile, outBuf);
+  console.log(`✅ Successfully fetched and assembled all chunks for ${opts.txid}!`);
+  console.log(`Wrote ${outBuf.length} bytes to ${opts.outfile}`);
   return { outfile: path.resolve(opts.outfile), bytes: outBuf.length };
 }
 
