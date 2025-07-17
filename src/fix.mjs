@@ -61,7 +61,7 @@ export async function fixArweaveTx(txid, { logger = console.log, errorLogger = c
     } else {
       logger(`\nFetching chunks for bundle id ${bundleId} with default peers.`);
     }
-    await fetchArweaveChunks({ txid: bundleId, peers: peerList });
+    await fetchArweaveChunks({ txid: bundleId, peers: peerList }, { logger, errorLogger });
   } catch (err) {
     errorLogger('Failed to fetch chunks:', err.message);
     throw err;
@@ -70,7 +70,7 @@ export async function fixArweaveTx(txid, { logger = console.log, errorLogger = c
   // 3. Reupload
   try {
     logger(`\nReuploading chunks for bundle id ${bundleId}...`);
-    await reuploadChunks(bundleId);
+    await reuploadChunks(bundleId, { logger, errorLogger });
   } catch (err) {
     errorLogger('Failed to reupload chunks:', err.message);
     throw err;
