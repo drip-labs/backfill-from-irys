@@ -62,7 +62,7 @@ function parseArgs(argv) {
         ...list
           .split(',')
           .map((s) => s.trim())
-          .filter(Boolean),
+          .filter(Boolean)
       );
     } else if (a === '--maxPeers') {
       opts.maxPeers = parseInt(args[++i], 10) || opts.maxPeers;
@@ -84,14 +84,15 @@ function parseArgs(argv) {
 
 function usage() {
   console.log(
-    `Usage: node ${path.basename(process.argv[1])} <txid> [outfile] [--peers peer1,peer2,...] [--maxPeers N] [--timeout MS] [--verbose]\n`,
+    `Usage: node ${path.basename(
+      process.argv[1]
+    )} <txid> [outfile] [--peers peer1,peer2,...] [--maxPeers N] [--timeout MS] [--verbose]\n`
   );
   console.log('Example:');
   console.log(
-    `  node ${path.basename(process.argv[1])} SIaSQkaJSucywz5Jv5dHQky78Hhur-OEMHn7Jld2ABo bundle.bin --verbose`,
+    `  node ${path.basename(process.argv[1])} SIaSQkaJSucywz5Jv5dHQky78Hhur-OEMHn7Jld2ABo bundle.bin --verbose`
   );
 }
-
 
 // ------------------------------ BASE64URL -----------------------------------
 function base64UrlToBuffer(b64url) {
@@ -137,21 +138,15 @@ async function discoverPeers(seedPeers, timeout, maxPeers, verbose) {
     out.push(norm);
     if (verbose) console.error(`[peers] visiting ${norm}`);
     try {
-      const arr = await axios.get(`${norm}/peers`, { timeout }).then(r => r.data);
+      const arr = await axios.get(`${norm}/peers`, { timeout }).then((r) => r.data);
       for (const cand of arr) {
         const c = normalisePeer(cand);
-        if (
-          c &&
-          !visited.has(c) &&
-          !queue.includes(c) &&
-          out.length + queue.length < maxPeers
-        ) {
+        if (c && !visited.has(c) && !queue.includes(c) && out.length + queue.length < maxPeers) {
           queue.push(c);
         }
       }
     } catch (err) {
-      if (verbose)
-        console.error(`[peers] ${norm} /peers failed: ${err.message}`);
+      if (verbose) console.error(`[peers] ${norm} /peers failed: ${err.message}`);
     }
   }
   return out.slice(0, maxPeers);
@@ -164,12 +159,8 @@ async function fetchTxOffset(txid, peers, timeout, verbose) {
     const url = `${p}/tx/${txid}/offset`;
     if (verbose) console.error(`[offset] ${url}`);
     try {
-      const json = await axios.get(url, { timeout }).then(r => r.data);
-      if (
-        json &&
-        typeof json.offset !== 'undefined' &&
-        typeof json.size !== 'undefined'
-      ) {
+      const json = await axios.get(url, { timeout }).then((r) => r.data);
+      if (json && typeof json.offset !== 'undefined' && typeof json.size !== 'undefined') {
         return {
           peer: p,
           offset: BigInt(json.offset),
@@ -181,9 +172,7 @@ async function fetchTxOffset(txid, peers, timeout, verbose) {
       errors.push(err);
     }
   }
-  const e = new Error(
-    `Failed to fetch tx offset from any peer (${errors.length} errors)`,
-  );
+  const e = new Error(`Failed to fetch tx offset from any peer (${errors.length} errors)`);
   e.causes = errors;
   throw e;
 }
@@ -192,15 +181,12 @@ async function fetchTxOffset(txid, peers, timeout, verbose) {
 async function fetchChunkFromPeer(peer, absPos, timeout, verbose) {
   const url = `${peer}/chunk/${absPos.toString()}`;
   if (verbose) console.error(`[chunk] GET ${url}`);
-  const json = await axios.get(url, { timeout }).then(r => r.data);
+  const json = await axios.get(url, { timeout }).then((r) => r.data);
   if (!json || typeof json.chunk !== 'string') throw new Error('chunk missing');
   const buf = base64UrlToBuffer(json.chunk);
   // Response may include an `offset` (end offset) and/or `data_size`; tolerate absence.
   // If offset provided use it; else assume the chunk we requested ends at absPos + buf.length -1.
-  const respEnd =
-    json.offset !== undefined
-      ? BigInt(json.offset)
-      : absPos + BigInt(buf.length) - 1n;
+  const respEnd = json.offset !== undefined ? BigInt(json.offset) : absPos + BigInt(buf.length) - 1n;
   const chunkStart = respEnd - BigInt(buf.length) + 1n;
   return { buf, start: chunkStart, end: respEnd, raw: json };
 }
@@ -267,20 +253,12 @@ export async function fetchArweaveChunks(opts, { logger = console.log, errorLogg
   ];
 
   // Normalize and deduplicate all peers
-  const allPeers = Array.from(
-    new Set([...seed, ...peers].map(normalisePeer).filter(Boolean))
-  );
+  const allPeers = Array.from(new Set([...seed, ...peers].map(normalisePeer).filter(Boolean)));
   logger(`Using peers for chunk fetch: [${allPeers.join(', ')}]`);
 
-  const { offset: endOffset, size } = await fetchTxOffset(
-    opts.txid,
-    allPeers,
-    opts.timeout,
-    opts.verbose,
-  );
+  const { offset: endOffset, size } = await fetchTxOffset(opts.txid, allPeers, opts.timeout, opts.verbose);
   const startOffset = endOffset - size + 1n;
-  if (opts.verbose)
-    errorLogger(`[tx] size=${size} end=${endOffset} start=${startOffset}`);
+  if (opts.verbose) errorLogger(`[tx] size=${size} end=${endOffset} start=${startOffset}`);
 
   const buffers = [];
   let bytesAccum = 0n;
@@ -288,12 +266,7 @@ export async function fetchArweaveChunks(opts, { logger = console.log, errorLogg
   let chunkCount = 0;
   let estTotalChunks = Math.ceil(Number(size) / (256 * 1024)); // estimate
   while (bytesAccum < size) {
-    const { buf, start, end } = await fetchChunk(
-      allPeers,
-      nextPos,
-      opts.timeout,
-      opts.verbose,
-    );
+    const { buf, start, end } = await fetchChunk(allPeers, nextPos, opts.timeout, opts.verbose);
     // Determine slice we need from this chunk.
     // If the chunk starts before the next unread position, slice forward.
     let sliceStart = 0;
@@ -318,9 +291,7 @@ export async function fetchArweaveChunks(opts, { logger = console.log, errorLogg
   const outBuf = Buffer.concat(buffers.map((b) => Buffer.from(b)));
   if (BigInt(outBuf.length) !== size) {
     errorLogger(`❌ Failed to fetch all chunks for ${opts.txid}: expected ${size} bytes, got ${outBuf.length} bytes.`);
-    throw new Error(
-      `Incomplete: expected ${size} bytes but assembled ${outBuf.length}`,
-    );
+    throw new Error(`Incomplete: expected ${size} bytes but assembled ${outBuf.length}`);
   }
   fs.writeFileSync(opts.outfile, outBuf);
   logger(`✅ Successfully fetched and assembled all chunks for ${opts.txid}!`);

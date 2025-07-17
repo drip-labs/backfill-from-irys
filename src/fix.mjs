@@ -21,7 +21,7 @@ function pollArweave(txid, { interval = 10000, maxAttempts = 100, logger = conso
       if (attempts >= maxAttempts) {
         reject(new Error(`Gave up after ${maxAttempts} attempts.`));
       } else {
-        logger('.')
+        logger('.');
         setTimeout(check, interval);
       }
     }
@@ -94,4 +94,4 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(1);
   }
   fixArweaveTx(args[0], { logger: console.log, errorLogger: console.error }).catch(() => process.exit(1));
-} 
+}

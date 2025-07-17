@@ -79,4 +79,4 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     console.error('ERROR:', err.message);
     process.exit(1);
   }
-} 
+}

@@ -49,4 +49,4 @@ if ((typeof require !== 'undefined' && require.main === module) || process.env.L
   app.listen(PORT, () => {
     console.log(`Backfill-from-Irys API listening on port ${PORT}`);
   });
-} 
+}

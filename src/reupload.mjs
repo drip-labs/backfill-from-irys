@@ -26,9 +26,7 @@ export async function reuploadChunks(TX_ID_TO_UPLOAD, { logger = console.log, er
   const tx = uploader.transaction;
   const totalChunks = tx.chunks.chunks.length;
 
-  logger(
-    `Uploading ${totalChunks} chunk(s) for transaction ${TX_ID_TO_UPLOAD}...`,
-  );
+  logger(`Uploading ${totalChunks} chunk(s) for transaction ${TX_ID_TO_UPLOAD}...`);
 
   let successCount = 0;
   let failedChunks = [];
@@ -49,7 +47,7 @@ export async function reuploadChunks(TX_ID_TO_UPLOAD, { logger = console.log, er
           parseInt(chunkObj.offset, 10),
           0,
           parseInt(chunkObj.data_size, 10),
-          ArweaveUtils.b64UrlToBuffer(chunkObj.data_path),
+          ArweaveUtils.b64UrlToBuffer(chunkObj.data_path)
         );
         if (!chunkOk) {
           throw new Error(`Unable to validate chunk ${i}`);
@@ -64,31 +62,23 @@ export async function reuploadChunks(TX_ID_TO_UPLOAD, { logger = console.log, er
 
         if (resp.status === 200 || resp.status === 208) {
           // 208 Already Reported: chunk already present – treat as success
-          logger(
-            `Chunk ${i + 1}/${totalChunks} uploaded. (status ${resp.status})`,
-          );
+          logger(`Chunk ${i + 1}/${totalChunks} uploaded. (status ${resp.status})`);
           chunkSuccess = true;
           successCount++;
           break;
         } else {
-          throw new Error(
-            `Chunk ${i} upload failed (status ${resp.status}): ${JSON.stringify(resp.data)}`,
-          );
+          throw new Error(`Chunk ${i} upload failed (status ${resp.status}): ${JSON.stringify(resp.data)}`);
         }
       } catch (err) {
         attempt += 1;
         if (attempt > MAX_RETRIES_PER_CHUNK) {
-          errorLogger(
-            `❌ Giving up on chunk ${i} after ${MAX_RETRIES_PER_CHUNK} retries.`,
-          );
+          errorLogger(`❌ Giving up on chunk ${i} after ${MAX_RETRIES_PER_CHUNK} retries.`);
           errorLogger(err);
           failedChunks.push(i + 1);
           break;
         } else {
           const delay = RETRY_DELAY_MS_BASE * attempt;
-          logger(
-            `Retry ${attempt}/${MAX_RETRIES_PER_CHUNK} for chunk ${i} in ${delay}ms... (${err.message})`,
-          );
+          logger(`Retry ${attempt}/${MAX_RETRIES_PER_CHUNK} for chunk ${i} in ${delay}ms... (${err.message})`);
           await sleep(delay);
         }
       }
@@ -98,7 +88,11 @@ export async function reuploadChunks(TX_ID_TO_UPLOAD, { logger = console.log, er
   if (successCount === totalChunks) {
     logger(`✅ All ${totalChunks} chunks uploaded successfully for ${TX_ID_TO_UPLOAD}!`);
   } else {
-    errorLogger(`❌ Only ${successCount}/${totalChunks} chunks uploaded for ${TX_ID_TO_UPLOAD}. Failed chunks: [${failedChunks.join(', ')}]`);
+    errorLogger(
+      `❌ Only ${successCount}/${totalChunks} chunks uploaded for ${TX_ID_TO_UPLOAD}. Failed chunks: [${failedChunks.join(
+        ', '
+      )}]`
+    );
     throw new Error(`Failed to upload all chunks for ${TX_ID_TO_UPLOAD}`);
   }
 }
