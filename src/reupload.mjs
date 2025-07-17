@@ -1,6 +1,8 @@
-const Arweave = require('arweave');
-const fs = require('fs');
-const path = require('path');
+import Arweave from 'arweave';
+import fs from 'fs';
+import path from 'path';
+import { validatePath } from 'arweave/node/lib/merkle.js';
+import * as ArweaveUtils from 'arweave/node/lib/utils.js';
 
 // --- CONFIG -------------------------------------------------------------
 // Remove hardcoded values; will be set from argv
@@ -34,21 +36,22 @@ const arweave = Arweave.init({
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Node build location for helpers varies; try/catch fallbacks:
-let validatePath, ArweaveUtils;
-try {
-  ({ validatePath } = require('arweave/node/lib/merkle'));
-  ArweaveUtils = require('arweave/node/lib/utils');
-} catch (e) {
-  // Fallback for bundlers / alt paths
-  ({ validatePath } = require('arweave/lib/merkle'));
-  ArweaveUtils = require('arweave/lib/utils');
-}
 
 // --- MAIN ---------------------------------------------------------------
-(async () => {
+export async function reuploadChunks(TX_ID_TO_UPLOAD) {
+  const DATA_TO_UPLOAD = path.resolve(`./${TX_ID_TO_UPLOAD}.bin`);
+  if (!fs.existsSync(DATA_TO_UPLOAD)) {
+    throw new Error(`File not found: ${DATA_TO_UPLOAD}`);
+  }
+  const MAX_RETRIES_PER_CHUNK = 5;
+  const RETRY_DELAY_MS_BASE = 750;
+  const arweave = Arweave.init({
+    host: 'arweave.net',
+    port: 443,
+    protocol: 'https',
+  });
   // 1. Load local data
   const data = fs.readFileSync(DATA_TO_UPLOAD);
-
   // 2. Fetch the already-created transaction
   const tx_ = await arweave.transactions.get(TX_ID_TO_UPLOAD);
   const uploader = await arweave.transactions.getUploader(tx_, data);
@@ -105,7 +108,7 @@ try {
             `❌ Giving up on chunk ${i} after ${MAX_RETRIES_PER_CHUNK} retries.`,
           );
           console.error(err);
-          process.exit(1);
+          throw err;
         } else {
           const delay = RETRY_DELAY_MS_BASE * attempt;
           console.warn(
@@ -123,4 +126,16 @@ try {
   console.log(
     'If all chunks returned 200/208, the gateway should be able to assemble the full data.',
   );
-})();
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const args = process.argv.slice(2);
+  if (args.length < 1 || args.includes('-h') || args.includes('--help')) {
+    console.error(`Usage: node ${path.basename(process.argv[1])} <txid>`);
+    process.exit(1);
+  }
+  reuploadChunks(args[0]).catch((err) => {
+    console.error('ERROR:', err.message);
+    process.exit(1);
+  });
+}
