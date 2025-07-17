@@ -21,7 +21,7 @@ function pollArweave(txid, { interval = 10000, maxAttempts = 100 } = {}) {
       if (attempts >= maxAttempts) {
         reject(new Error(`Gave up after ${maxAttempts} attempts.`));
       } else {
-        process.stdout.write('.');
+        console.log('.');
         setTimeout(check, interval);
       }
     }
