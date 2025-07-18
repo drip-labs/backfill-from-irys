@@ -153,25 +153,45 @@ async function discoverPeers(seedPeers, timeout, maxPeers, verbose) {
 }
 
 // -------------------------- TX OFFSET + SIZE --------------------------------
-async function fetchTxOffset(txid, peers, timeout, verbose) {
+async function fetchTxOffset(txid, peers, timeout, verbose, logger = console.log) {
   const errors = [];
-  for (const p of peers) {
+  logger(`Attempting to fetch tx offset from ${peers.length} peers...`);
+
+  for (let i = 0; i < peers.length; i++) {
+    const p = peers[i];
     const url = `${p}/tx/${txid}/offset`;
-    if (verbose) console.error(`[offset] ${url}`);
+    if (verbose) logger(`[offset] Trying ${url} (${i + 1}/${peers.length})`);
+
     try {
-      const json = await axios.get(url, { timeout }).then((r) => r.data);
+      const json = await axios
+        .get(url, {
+          timeout: Math.min(timeout, 10000), // Cap individual request timeout
+          validateStatus: () => true, // Don't throw on HTTP error status
+        })
+        .then((r) => r.data);
+
       if (json && typeof json.offset !== 'undefined' && typeof json.size !== 'undefined') {
+        logger(`✅ Successfully fetched offset from ${p}: offset=${json.offset}, size=${json.size}`);
         return {
           peer: p,
           offset: BigInt(json.offset),
           size: BigInt(json.size),
         };
       }
-      errors.push(new Error(`Malformed response from ${p}`));
+      errors.push(new Error(`Malformed response from ${p}: ${JSON.stringify(json)}`));
     } catch (err) {
-      errors.push(err);
+      const errorMsg = err.code === 'ECONNABORTED' ? 'timeout' : err.message;
+      errors.push(new Error(`${p}: ${errorMsg}`));
+      if (verbose) logger(`❌ Failed ${p}: ${errorMsg}`);
+    }
+
+    // Log progress every 5 attempts
+    if ((i + 1) % 5 === 0) {
+      logger(`Tried ${i + 1}/${peers.length} peers, still searching...`);
     }
   }
+
+  logger(`❌ Failed to fetch tx offset from any peer (${errors.length} errors)`);
   const e = new Error(`Failed to fetch tx offset from any peer (${errors.length} errors)`);
   e.causes = errors;
   throw e;
@@ -181,8 +201,21 @@ async function fetchTxOffset(txid, peers, timeout, verbose) {
 async function fetchChunkFromPeer(peer, absPos, timeout, verbose) {
   const url = `${peer}/chunk/${absPos.toString()}`;
   if (verbose) console.error(`[chunk] GET ${url}`);
-  const json = await axios.get(url, { timeout }).then((r) => r.data);
-  if (!json || typeof json.chunk !== 'string') throw new Error('chunk missing');
+
+  const response = await axios.get(url, {
+    timeout: Math.min(timeout, 120000), // Cap individual request timeout
+    validateStatus: () => true, // Don't throw on HTTP error status
+  });
+
+  if (response.status !== 200) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+
+  const json = response.data;
+  if (!json || typeof json.chunk !== 'string') {
+    throw new Error(`Invalid response format: ${JSON.stringify(json).substring(0, 100)}`);
+  }
+
   const buf = base64UrlToBuffer(json.chunk);
   // Response may include an `offset` (end offset) and/or `data_size`; tolerate absence.
   // If offset provided use it; else assume the chunk we requested ends at absPos + buf.length -1.
@@ -191,14 +224,21 @@ async function fetchChunkFromPeer(peer, absPos, timeout, verbose) {
   return { buf, start: chunkStart, end: respEnd, raw: json };
 }
 
-async function fetchChunk(peers, absPos, timeout, verbose) {
+async function fetchChunk(peers, absPos, timeout, verbose, logger = console.log) {
   const errors = [];
-  for (const p of peers) {
+  for (let i = 0; i < peers.length; i++) {
+    const p = peers[i];
     try {
       return await fetchChunkFromPeer(p, absPos, timeout, verbose);
     } catch (err) {
-      errors.push(err);
-      if (verbose) console.error(`[chunk] ${p} failed: ${err.message}`);
+      const errorMsg = err.code === 'ECONNABORTED' ? 'timeout' : err.message;
+      errors.push(new Error(`${p}: ${errorMsg}`));
+      if (verbose) logger(`[chunk] ${p} failed: ${errorMsg}`);
+    }
+
+    // Log progress every 10 attempts
+    if ((i + 1) % 10 === 0) {
+      logger(`Tried ${i + 1}/${peers.length} peers for chunk @${absPos.toString()}, still searching...`);
     }
   }
   const e = new Error(`All peers failed for chunk @${absPos.toString()}`);
@@ -208,6 +248,8 @@ async function fetchChunk(peers, absPos, timeout, verbose) {
 
 // ------------------------------ MAIN LOGIC ----------------------------------
 export async function fetchArweaveChunks(opts, { logger = console.log, errorLogger = console.error } = {}) {
+  // Ensure required options have defaults
+  opts.timeout = opts.timeout || 120000;
   opts.outfile = opts.outfile || `${opts.txid}.bin`;
   const seed = [...BUILTIN_PEERS, ...(opts.peers || [])];
   // const peers = await discoverPeers(
@@ -217,46 +259,52 @@ export async function fetchArweaveChunks(opts, { logger = console.log, errorLogg
   //   opts.verbose,
   // );
 
-  const peers = [
-    '38.29.227.39:1984',
-    '38.29.227.41:1984',
-    '38.29.227.85:1984',
-    '165.254.143.21:1984',
-    '168.119.211.20:1984',
-    '38.29.227.87:1984',
-    '38.29.227.43:1984',
-    '38.29.227.89:1984',
-    '49.12.135.160:1984',
-    '108.238.244.144:2012',
-    '38.29.227.93:1984',
-    '165.254.143.17:1984',
-    '165.254.143.25:1984',
-    '112.120.10.191:1986',
-    '165.254.143.31:1984',
-    '38.29.227.91:1984',
-    '165.254.143.27:1984',
-    '165.254.143.23:1984',
-    '38.29.227.95:1984',
-    '112.120.10.191:1984',
-    '47.205.134.63:1985',
-    '74.82.0.180:1995',
-    '165.254.143.33:1984',
-    '165.254.143.29:1984',
-    '138.201.218.229:1984',
-    '112.120.10.191:1985',
-    '168.119.211.60:1984',
-    '165.254.143.19:1984',
-    '154.201.1.130:11099',
-    '74.82.0.180:1986',
-    '3.34.96.164:1984',
-    '74.82.0.180:1988',
-  ];
+  // const peers = [
+  //   '38.29.227.39:1984',
+  //   '38.29.227.41:1984',
+  //   '38.29.227.85:1984',
+  //   '165.254.143.21:1984',
+  //   '168.119.211.20:1984',
+  //   '38.29.227.87:1984',
+  //   '38.29.227.43:1984',
+  //   '38.29.227.89:1984',
+  //   '49.12.135.160:1984',
+  //   '108.238.244.144:2012',
+  //   '38.29.227.93:1984',
+  //   '165.254.143.17:1984',
+  //   '165.254.143.25:1984',
+  //   '112.120.10.191:1986',
+  //   '165.254.143.31:1984',
+  //   '38.29.227.91:1984',
+  //   '165.254.143.27:1984',
+  //   '165.254.143.23:1984',
+  //   '38.29.227.95:1984',
+  //   '112.120.10.191:1984',
+  //   '47.205.134.63:1985',
+  //   '74.82.0.180:1995',
+  //   '165.254.143.33:1984',
+  //   '165.254.143.29:1984',
+  //   '138.201.218.229:1984',
+  //   '112.120.10.191:1985',
+  //   '168.119.211.60:1984',
+  //   '165.254.143.19:1984',
+  //   '154.201.1.130:11099',
+  //   '74.82.0.180:1986',
+  //   '3.34.96.164:1984',
+  //   '74.82.0.180:1988',
+  // ];
 
   // Normalize and deduplicate all peers
-  const allPeers = Array.from(new Set([...seed, ...peers].map(normalisePeer).filter(Boolean)));
+  const allPeers = Array.from(new Set([...seed].map(normalisePeer).filter(Boolean)));
   logger(`Using peers for chunk fetch: [${allPeers.join(', ')}]`);
 
-  const { offset: endOffset, size } = await fetchTxOffset(opts.txid, allPeers, opts.timeout, opts.verbose);
+  // Add overall timeout protection
+  const offsetPromise = fetchTxOffset(opts.txid, allPeers, opts.timeout, opts.verbose, logger);
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('Overall timeout fetching tx offset')), opts.timeout * 2)
+  );
+
+  const { offset: endOffset, size } = await Promise.race([offsetPromise, timeoutPromise]);
   const startOffset = endOffset - size + 1n;
   if (opts.verbose) errorLogger(`[tx] size=${size} end=${endOffset} start=${startOffset}`);
 
@@ -265,27 +313,45 @@ export async function fetchArweaveChunks(opts, { logger = console.log, errorLogg
   let nextPos = startOffset;
   let chunkCount = 0;
   let estTotalChunks = Math.ceil(Number(size) / (256 * 1024)); // estimate
-  while (bytesAccum < size) {
-    const { buf, start, end } = await fetchChunk(allPeers, nextPos, opts.timeout, opts.verbose);
-    // Determine slice we need from this chunk.
-    // If the chunk starts before the next unread position, slice forward.
-    let sliceStart = 0;
-    if (start < nextPos) {
-      sliceStart = Number(nextPos - start); // safe because <= buf.length
+
+  // Add overall timeout for the entire chunk fetching operation
+  const overallTimeout = setTimeout(() => {
+    throw new Error(`Overall timeout: chunk fetching took longer than ${opts.timeout * 3}ms`);
+  }, opts.timeout * 3);
+
+  try {
+    while (bytesAccum < size) {
+      const chunkPromise = fetchChunk(allPeers, nextPos, opts.timeout, opts.verbose, logger);
+      const chunkTimeoutPromise = new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`Timeout fetching chunk at position ${nextPos.toString()}`)),
+          opts.timeout * 2
+        )
+      );
+
+      const { buf, start, end } = await Promise.race([chunkPromise, chunkTimeoutPromise]);
+      // Determine slice we need from this chunk.
+      // If the chunk starts before the next unread position, slice forward.
+      let sliceStart = 0;
+      if (start < nextPos) {
+        sliceStart = Number(nextPos - start); // safe because <= buf.length
+      }
+      let usable = buf.slice(sliceStart);
+      // Do not read past declared size.
+      const remaining = Number(size - bytesAccum);
+      if (usable.length > remaining) {
+        usable = usable.slice(0, remaining);
+      }
+      buffers.push(usable);
+      bytesAccum += BigInt(usable.length);
+      chunkCount++;
+      logger(`Fetched chunk ${chunkCount} (size: ${usable.length} bytes, total: ${bytesAccum}/${size})`);
+      if (bytesAccum >= size) break;
+      // Compute next absolute position (byte index) to request.
+      nextPos = start + BigInt(buf.length); // first byte after this chunk
     }
-    let usable = buf.slice(sliceStart);
-    // Do not read past declared size.
-    const remaining = Number(size - bytesAccum);
-    if (usable.length > remaining) {
-      usable = usable.slice(0, remaining);
-    }
-    buffers.push(usable);
-    bytesAccum += BigInt(usable.length);
-    chunkCount++;
-    logger(`Fetched chunk ${chunkCount} (size: ${usable.length} bytes, total: ${bytesAccum}/${size})`);
-    if (bytesAccum >= size) break;
-    // Compute next absolute position (byte index) to request.
-    nextPos = start + BigInt(buf.length); // first byte after this chunk
+  } finally {
+    clearTimeout(overallTimeout);
   }
 
   const outBuf = Buffer.concat(buffers.map((b) => Buffer.from(b)));

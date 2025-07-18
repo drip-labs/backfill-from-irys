@@ -61,7 +61,15 @@ export async function fixArweaveTx(txid, { logger = console.log, errorLogger = c
     } else {
       logger(`\nFetching chunks for bundle id ${bundleId} with default peers.`);
     }
-    await fetchArweaveChunks({ txid: bundleId, peers: peerList }, { logger, errorLogger });
+    await fetchArweaveChunks(
+      {
+        txid: bundleId,
+        peers: peerList,
+        timeout: 120000,
+        verbose: false,
+      },
+      { logger, errorLogger }
+    );
   } catch (err) {
     errorLogger('Failed to fetch chunks:', err.message);
     throw err;

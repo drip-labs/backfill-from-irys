@@ -37,4 +37,4 @@ jobs:
             --trigger-http \
             --allow-unauthenticated \
             --memory=512MB \
-            --timeout=3600s
+            --timeout=600s

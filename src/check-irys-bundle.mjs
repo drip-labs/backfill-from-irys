@@ -26,11 +26,20 @@ function usage() {
 
 async function checkTxArweaveExists(tx_id) {
   try {
-    const resp = await axios.head(`https://arweave.net/${tx_id}`, { maxRedirects: 3 });
+    const resp = await axios.head(`https://arweave.net/${tx_id}`, {
+      maxRedirects: 5,
+      timeout: 10000,
+      validateStatus: () => true, // Don't throw on any status code
+    });
+
+    // Check if we got a successful response (including after redirects)
     const statusOk = resp.status >= 200 && resp.status < 300;
     const contentLength = parseInt(resp.headers['content-length'] || '0', 10);
+
     return statusOk && contentLength > 0;
   } catch (err) {
+    // Log the error for debugging
+    console.error(`Error checking Arweave for ${tx_id}:`, err.message);
     return false;
   }
 }
